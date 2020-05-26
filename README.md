@@ -77,6 +77,9 @@ To generate the queries execute:
 $ ./exe/loader gen <schemafile_path> <datafile_path>
 ```
 
+The output of the command can be redirected to a file, which can be loaded into the Neo4J web UI.
+
+
 ## Development
 
 After checking out the repo, run `bin/setup` to install dependencies. Then, run `rake spec` to run the tests. You can also run `bin/console` for an interactive prompt that will allow you to experiment.

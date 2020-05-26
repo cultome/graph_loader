@@ -21,7 +21,17 @@ class Hash
   end
 
   def scope_props
-    fetch(:properties).map { |k,v| "#{k}: #{v.to_json}"}.join(", ")
+    fetch(:properties).map do |k,v|
+      next if v.nil?
+
+      val = if v.is_a? Date
+              "date(#{v.to_json})"
+            else
+              v.to_json
+            end
+
+      "#{k}: #{val}"
+    end.compact.join(", ")
   end
 
   def scope_id
@@ -40,9 +50,10 @@ module GraphLoader
     class ValueResolver
       include GraphLoader::Resolvable
 
-      def initialize(arg, default: nil)
+      def initialize(arg, **kwargs, &block)
         @arg = arg
-        @default = default
+        @kwargs = kwargs
+        @block = block
       end
     end
 
@@ -50,9 +61,38 @@ module GraphLoader
       def resolve(row)
         cell = row[@arg]
 
-        return @default if cell.nil?
+        cell_val = if cell.nil?
+          @kwargs.fetch(:default, nil)
+        else
+          cell.value
+        end
 
-        cell.value
+        if @kwargs.key? :type
+          cell_val = cast_to(@kwargs[:type], cell_val)
+        end
+
+        return cell_val if @block.nil?
+
+        @block.call cell_val
+      end
+
+      private
+
+      def cast_to(type, value)
+        case type
+        when :date
+          cast_to_date value
+        else
+          raise "Unable to cast value [#{value}] to type [#{type}]"
+        end
+      end
+
+      def cast_to_date(value)
+        if value.is_a? DateTime
+          value.to_date
+        else
+          raise "Unable to cast value [#{value}] of type [#{value.class.name}] to date"
+        end
       end
     end
 
@@ -62,8 +102,8 @@ module GraphLoader
       end
     end
 
-    def column(position, default: nil)
-      ColumnValueResolver.new(position, default: default)
+    def column(position, **kwargs, &block)
+      ColumnValueResolver.new(position, **kwargs, &block)
     end
 
     def fixed(value)
@@ -107,6 +147,10 @@ module GraphLoader
     def consume(wb)
       is_headers_row = true
       page_id = @page.resolve(nil)
+
+      if wb[page_id].nil?
+        require "pry";binding.pry
+      end
 
       wb[page_id].map do |row|
         if is_headers_row
@@ -201,12 +245,10 @@ module GraphLoader
       @to_type = to_type
     end
 
-    def from_id(value)
-      @from_id = wrap_value value
-    end
+    def method_missing(mtd, *args, &block)
+      return super unless %i[from_id from_type to_id to_type name].include? mtd
 
-    def to_id(value)
-      @to_id = wrap_value value
+      instance_variable_set("@#{mtd}", wrap_value(args.first))
     end
 
     def consume_format(entity)
@@ -234,7 +276,7 @@ module GraphLoader
       @entities << entity
     end
 
-    def relationship(name, from:, to:, &block)
+    def relationship(name = nil, from: nil, to: nil, &block)
       relationship = GraphLoader::RelationshipScope.new name, from, to
       relationship.instance_eval(&block)
 
@@ -263,14 +305,14 @@ module GraphLoader
         acc[entity[:scope_name]][entity[:id]] = entity
       end
 
-      # cross entities
+      # relate entities
       relationships.each do |rel|
-        rel[:from] = entities_dict.fetch(rel[:from_type]).fetch(rel[:from_id])
-        rel[:to] = entities_dict.fetch(rel[:to_type]).fetch(rel[:to_id])
+        rel[:from] = entities_dict.fetch(rel[:from_type].to_sym).fetch(rel[:from_id])
+        rel[:to] = entities_dict.fetch(rel[:to_type].to_sym).fetch(rel[:to_id])
       end
 
-      puts "CREATE"
-      puts entities.map(&:to_cypher).concat(relationships.map(&:to_cypher)).join(",\n")
+      print "\nCREATE\n  "
+      puts entities.map(&:to_cypher).concat(relationships.map(&:to_cypher)).join(",\n  ")
       puts ";"
     end
   end
