@@ -4,11 +4,11 @@ require "rubyXL"
 require "json"
 
 class Hash
-  def to_cypher_insert
+  def to_cypher
     if fetch(:scope_type) == :entity
-      "CREATE (#{scope_id}:#{scope_label} {#{scope_props}});"
+      "(#{scope_id}:#{scope_label} {#{scope_props}})"
     elsif fetch(:scope_type) == :relationship
-      "CREATE (#{fetch(:from).scope_id})-[:#{scope_label} {#{scope_props}}]->(#{fetch(:to).scope_id});"
+      "(#{fetch(:from).scope_id})-[:#{scope_label} {#{scope_props}}]->(#{fetch(:to).scope_id})"
     else
       raise "Invalid scope type to convert to cypher"
     end
@@ -36,7 +36,7 @@ module GraphLoader
     end
   end
 
-  module Data
+  module DataTypes
     class ValueResolver
       include GraphLoader::Resolvable
 
@@ -130,7 +130,7 @@ module GraphLoader
     end
   end
 
-  module Config
+  module DSL
     def page(value)
       @page = wrap_value value
     end
@@ -163,10 +163,18 @@ module GraphLoader
     end
   end
 
-  class PropertiesScope
-    include GraphLoader::Data
+  class Scope
+    include GraphLoader::DSL
+    include GraphLoader::DataTypes
+    include GraphLoader::Readable
     include GraphLoader::Resolvable
 
+    def initialize(scope_name)
+      @scope_name = scope_name
+    end
+  end
+
+  class PropertiesScope < Scope
     def initialize
       @data = {}
     end
@@ -179,17 +187,6 @@ module GraphLoader
 
     def method_missing(mtd, *args, &block)
       @data[mtd] = args.first
-    end
-  end
-
-  class Scope
-    include GraphLoader::Config
-    include GraphLoader::Data
-    include GraphLoader::Readable
-    include GraphLoader::Resolvable
-
-    def initialize(scope_name)
-      @scope_name = scope_name
     end
   end
 
@@ -272,8 +269,9 @@ module GraphLoader
         rel[:to] = entities_dict.fetch(rel[:to_type]).fetch(rel[:to_id])
       end
 
-      puts entities.map(&:to_cypher_insert)
-      puts relationships.map(&:to_cypher_insert)
+      puts "CREATE"
+      puts entities.map(&:to_cypher).concat(relationships.map(&:to_cypher)).join(",\n")
+      puts ";"
     end
   end
 end

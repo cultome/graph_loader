@@ -1,8 +1,6 @@
 # GraphLoader
 
-Welcome to your new gem! In this directory, you'll find the files you need to be able to package up your Ruby library into a gem. Put your Ruby code in the file `lib/graph_loader`. To experiment with that code, run `bin/console` for an interactive prompt.
-
-TODO: Delete this and the text above, and describe your gem
+Maps a XLSX file to entities and relationships using a ruby DSL, and generate cypher queries to insert them.
 
 ## Installation
 
@@ -22,7 +20,62 @@ Or install it yourself as:
 
 ## Usage
 
-TODO: Write usage instructions here
+The first thing is define a schema file that maps the XSLX file to entities and relationships.
+
+Schema file looks like this:
+
+```ruby
+# define an entity named person
+entity :person do
+  # the data for this entity is in the first page of XSLX file
+  page 0
+  # an "internal id" will in the first column (assumes that the first row contains headers)
+  id column(0)
+  # defines 2 labels for this entity: a fixed/static value and the value found in
+  # fouth column (zero-index based). If the value in this column in empty, use a default value.
+  label fixed("Politico"), column(3, default: "MalPolitico")
+
+  # properties will be values inside the node properties
+  # in this example we have 2, name and last_name, and will be populated with the
+  # columns 1 and 2 of the selected page
+  properties do
+    name column(1)
+    last_name column(2)
+  end
+end
+
+# you can define any number of entities
+entity :secretariat do
+  page fixed(1)
+  id column(0)
+  label fixed("GovernmentDependency"), fixed("Secretariat")
+
+  properties do
+    name column(1)
+  end
+end
+
+# relationships are given by two entities and has direction.
+relationship :HAS_POLITICAL_CHARGE, from: :person, to: :secretariat do
+  # a page can be given by its position or name
+  page "Cargo Político"
+  from_id column(0)
+  to_id column(5)
+  label fixed("PoliticalCharge")
+
+  properties do
+    name column(1)
+    date_period column(3)
+    political_party column(2)
+  end
+end
+```
+
+To generate the queries execute:
+
+```
+$ ./exe/loader gen <schemafile_path> <datafile_path>
+```
 
 ## Development
 

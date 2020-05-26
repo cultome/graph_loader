@@ -1,0 +1,15 @@
+#!/usr/bin/env ruby
+
+$LOAD_PATH.unshift("./lib")
+
+require "thor"
+require "graph_loader"
+
+class Loader < Thor
+  desc "gen SCHEMA DATAFILE", "Generate Cypher queries to insert data"
+  def gen(schema, datafile)
+    GraphLoader::Reader.read schema, datafile
+  end
+end
+
+Loader.start ARGV
