@@ -1,9 +1,5 @@
 RSpec.describe GraphLoader do
-  it "has a version number" do
-    expect(GraphLoader::VERSION).not_to be nil
-  end
-
-  it "does something useful" do
-    expect(false).to eq(true)
+  it "read script" do
+    GraphLoader::Reader.read "spec/data/reference.rb", "spec/data/datafile.xlsx"
   end
 end
