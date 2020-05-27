@@ -13,6 +13,7 @@ end
 entity :movie do
   page "movie"
   id column(0)
+  label "Movie"
 
   properties do
     name column(1)
@@ -32,20 +33,53 @@ entity :actor do
 end
 
 relationship do
+  only_if(column(0)) { |col1| col1 == 1 }
+
   page "conections"
+  label column(5)
 
-  name column(4)
-  from_id column(0)
-  from_type column(1)
-  to_id column(2)
-  to_type column(3)
-
-  label column(4)
+  name column(5)
+  from_id column(1)
+  from_type column(2)
+  to_id column(3)
+  to_type column(4)
 
   properties do
-    film_took column(5)
-    cast_in column(6)
-    year column(7)
-    meet_in column(8)
+    film_took column(6)
+    cast_in column(7)
+    year column(8)
+    meet_in column(9)
+  end
+end
+
+relationship do
+  only_if(column(0), column(1)) { |type, id| type == 2 && id.start_with?("uuid") }
+
+  page "conections"
+  label "Custom"
+
+  name column(5)
+  from_find column(1)
+  to_id column(3)
+  to_type column(4)
+
+  properties do
+    year column(8)
+  end
+end
+
+relationship do
+  only_if(column(0)) { |type, id| type == 3 }
+
+  page "conections"
+  label column(5)
+
+  name column(5)
+  from_id column(1)
+  from_type column(2)
+  to_find column(3)
+
+  properties do
+    year column(8)
   end
 end

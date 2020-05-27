@@ -6,18 +6,20 @@ require "json"
 class Hash
   def to_cypher
     if fetch(:scope_type) == :entity
-      "(#{scope_id}:#{scope_label} {#{scope_props}})"
+      "(#{scope_id}#{scope_label} {#{scope_props}})"
     elsif fetch(:scope_type) == :relationship
-      "(#{fetch(:from).scope_id})-[:#{scope_label} {#{scope_props}}]->(#{fetch(:to).scope_id})"
+      "(#{fetch(:from).scope_id})-[#{scope_label} {#{scope_props}}]->(#{fetch(:to).scope_id})"
     else
       raise "Invalid scope type to convert to cypher"
     end
   end
 
   def scope_label
-    label = fetch(:label)
+    label = fetch(:label, [])
 
-    label.is_a?(Array) ? label.join(":") : label
+    val = label.is_a?(Array) ? label.join(":") : label
+
+    (val.nil? || val.empty?) ? "" : ":#{val}"
   end
 
   def scope_props
@@ -118,6 +120,14 @@ module GraphLoader
         @row = row
       end
 
+      def sheetid
+        @row.worksheet.sheet_name
+      end
+
+      def rowid
+        @row.cells.first.row + 1
+      end
+
       def method_missing(mtd, *args, &block)
         if @entity.instance_variable_defined? "@#{mtd}"
           value = @entity.instance_variable_get "@#{mtd}"
@@ -148,10 +158,6 @@ module GraphLoader
       is_headers_row = true
       page_id = @page.resolve(nil)
 
-      if wb[page_id].nil?
-        require "pry";binding.pry
-      end
-
       wb[page_id].map do |row|
         if is_headers_row
           is_headers_row = false
@@ -159,7 +165,13 @@ module GraphLoader
           next
         end
 
-        consume_format read(row)
+        if @only_if.nil?
+          consume_format read(row)
+        else
+          args = @only_if[:args].map { |arg| arg.resolve(row) }
+
+          consume_format(read(row)) if @only_if[:block].call(*args)
+        end
       end.compact
     end
 
@@ -168,6 +180,8 @@ module GraphLoader
         id: entity.id,
         scope_name: entity.scope_name,
         scope_type: self.class.name.split("::").last.downcase.gsub("scope", "").to_sym,
+        rowid: entity.rowid,
+        sheetid: entity.sheetid,
         label: entity.label,
         properties: entity.properties,
       }
@@ -190,6 +204,13 @@ module GraphLoader
     def properties(&block)
       @properties = GraphLoader::PropertiesScope.new
       @properties.instance_eval(&block)
+    end
+
+    def only_if(*values, &block)
+      @only_if = {
+        args: values.map { |val| wrap_value val },
+        block: block,
+      }
     end
 
     private
@@ -246,7 +267,7 @@ module GraphLoader
     end
 
     def method_missing(mtd, *args, &block)
-      return super unless %i[from_id from_type to_id to_type name].include? mtd
+      return super unless %i[to_find from_find from_id from_type to_id to_type name].include? mtd
 
       instance_variable_set("@#{mtd}", wrap_value(args.first))
     end
@@ -254,10 +275,12 @@ module GraphLoader
     def consume_format(entity)
       res = super entity
 
-      res[:from_id] = entity.from_id
-      res[:from_type] = entity.from_type
-      res[:to_id] = entity.to_id
-      res[:to_type] = entity.to_type
+      res[:to_find] = entity.to_find unless entity.to_find.nil?
+      res[:from_find] = entity.from_find unless entity.from_find.nil?
+      res[:from_id] = entity.from_id unless entity.from_id.nil?
+      res[:from_type] = entity.from_type unless entity.from_type.nil?
+      res[:to_id] = entity.to_id unless entity.to_id.nil?
+      res[:to_type] = entity.to_type unless entity.to_type.nil?
 
       res
     end
@@ -306,14 +329,64 @@ module GraphLoader
       end
 
       # relate entities
+      to_match = []
       relationships.each do |rel|
-        rel[:from] = entities_dict.fetch(rel[:from_type].to_sym).fetch(rel[:from_id])
-        rel[:to] = entities_dict.fetch(rel[:to_type].to_sym).fetch(rel[:to_id])
+        unless rel.key?(:from_find) || %i[from_type from_id].all? { |k| rel.key? k }
+          raise "from_type and from_id or from_find are needed to relate entities"
+        end
+
+        unless rel.key?(:to_find) || %i[to_type to_id].all? { |k| rel.key? k }
+          raise "to_type and to_id or to_find are needed to relate entities"
+        end
+
+        if rel.key? :from_find
+          found_from = {
+            scope_type: :entity,
+            scope_name: :found,
+            id: (rand * 10_000).to_i,
+            properties: {
+              id: rel[:from_find]
+            },
+          }
+
+          to_match << (rel[:from] = found_from)
+        else
+          rel[:from] = related_entity :from, rel, entities_dict
+        end
+
+        if rel.key? :to_find
+          found_to = {
+            scope_type: :entity,
+            scope_name: :found,
+            id: (rand * 10_000).to_i,
+            properties: {
+              id: rel[:to_find]
+            },
+          }
+
+          to_match << (rel[:to] = found_to)
+        else
+          rel[:to] = related_entity :to, rel, entities_dict
+        end
       end
 
+      print "\nMATCH\n  "
+      puts to_match.map(&:to_cypher).join(",\n  ")
       print "\nCREATE\n  "
       puts entities.map(&:to_cypher).concat(relationships.map(&:to_cypher)).join(",\n  ")
       puts ";"
+    end
+
+    private
+
+    def self.related_entity(rel_side, rel, entities_dict)
+      by_type = entities_dict.fetch(rel["#{rel_side}_type".to_sym].to_sym, nil)
+      raise "Invalid type in [#{rel_side}_type] in [#{rel[:sheetid]}:#{rel[:rowid]}]" if by_type.nil?
+
+      value = by_type.fetch(rel["#{rel_side}_id".to_sym], nil)
+      raise "Invalid [id] in [#{rel_side}_id] in [#{rel[:sheetid]}:#{rel[:rowid]}]" if value.nil?
+
+      value
     end
   end
 end
